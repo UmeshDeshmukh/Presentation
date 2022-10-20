@@ -1,0 +1,226 @@
+AARCH64 GAS  Ch15_05_.s 			page 1
+
+
+ GNU assembler version 2.35.2 (aarch64-linux-gnu)
+	 using BFD version (GNU Binutils for Debian) 2.35.2.
+ options passed	: -g -aghlms=obj/Ch15_05_.lst -march=armv8-a+simd -I. -I../../Include 
+ input file    	: Ch15_05_.s
+ output file   	: obj/Ch15_05_.o
+ target        	: aarch64-unknown-linux-gnu
+ time stamp    	: 2022-10-19T02:22:55.000-0400
+
+AARCH64 GAS  Ch15_05_.s 			page 2
+
+
+   1              	//-------------------------------------------------
+   2              	//               Ch15_05_.s
+   3              	//-------------------------------------------------
+   4              	
+   5              	            .include "Ch15_05_Macros_.inc"
+   1              	//-------------------------------------------------
+   2              	//               Ch15_05_Macros_.inc
+   3              	//-------------------------------------------------
+   4              	
+   5              	// Macro U8toF32 (uses v3 and v7 as temp registers)
+   6              	            .macro U8toF32 Vd0,Vd1,Vd2,Vd3,Vs
+   7              	            uxtl  v3.8h, \Vs\().8b              // promote to U16
+   8              	            uxtl2 v7.8h, \Vs\().16b
+   9              	
+  10              	            uxtl  \Vd0\().4s, v3.4h             // promote to U32
+  11              	            uxtl2 \Vd1\().4s, v3.8h
+  12              	            ucvtf \Vd0\().4s, \Vd0\().4s        // convert to F32  
+  13              	            ucvtf \Vd1\().4s, \Vd1\().4s
+  14              	
+  15              	            uxtl  \Vd2\().4s, v7.4h             // promote to U32
+  16              	            uxtl2 \Vd3\().4s, v7.8h
+  17              	            ucvtf \Vd2\().4s, \Vd2\().4s        // convert to F32
+  18              	            ucvtf \Vd3\().4s, \Vd3\().4s
+  19              	            .endm
+  20              	
+  21              	// Macro F32toU8
+  22              	            .macro F32toU8 Vd,Vs0,Vs1,Vs2,Vs3
+  23              	            fcvtnu \Vs0\().4s, \Vs0\().4s       // convert F32 to U32
+  24              	            fcvtnu \Vs1\().4s, \Vs1\().4s
+  25              	            uqxtn v0.4h, \Vs0\().4s             // convert to U16
+  26              	            uqxtn2 v0.8h, \Vs1\().4s
+  27              	
+  28              	            fcvtnu \Vs2\().4s, \Vs2\().4s       // convert F32 to U32
+  29              	            fcvtnu \Vs3\().4s, \Vs3\().4s
+  30              	            uqxtn v1.4h, \Vs2\().4s             // convert to U16
+  31              	            uqxtn2 v1.8h, \Vs3\().4s
+  32              	
+  33              	            uqxtn \Vd\().8b, v0.8h              // convert to U8
+  34              	            uqxtn2 \Vd\().16b, v1.8h
+  35              	            .endm
+  36              	
+  37              	// Macro MulCoef
+  38              	            .macro MulCoef Vs0,Vs1,Vs2,Vs3,Vcoef
+  39              	            fmul \Vs0\().4s, \Vs0\().4s, \Vcoef\().4s
+  40              	            fmul \Vs1\().4s, \Vs1\().4s, \Vcoef\().4s
+  41              	            fmul \Vs2\().4s, \Vs2\().4s, \Vcoef\().4s
+  42              	            fmul \Vs3\().4s, \Vs3\().4s, \Vcoef\().4s
+  43              	            .endm
+  44              	
+  45              	// Macro SumRGB (uses v7 as temp register)
+  46              	            .macro SumRGB Vr, Vg, Vb, Vc
+  47              	            fadd \Vr\().4s, \Vr\().4s, \Vg\().4s
+  48              	            fadd v7.4s, \Vb\().4s, \Vc\().4s
+  49              	            fadd \Vr\().4s, \Vr\().4s, V7.4s
+  50              	            .endm
+   6              	
+   7              	// extern "C" bool ConvertRgbToGs_(uint8_t* pb_gs, const RGB32* pb_rgb, size_t num_pixels, const fl
+AARCH64 GAS  Ch15_05_.s 			page 3
+
+
+   8              	
+   9              	            .text
+  10              	            .global ConvertRgbToGs_
+  11              	ConvertRgbToGs_:
+  12              	
+  13              	// Validate arguments
+  14 0000 040B0058 	            ldr x4,=g_NumPixelsMin              // make sure num_pixels
+  15 0004 840040F9 	            ldr x4,[x4]                         // is >= g_NumPixelsMin
+  16 0008 5F0004EB 	            cmp x2,x4
+  17 000c 630A0054 	            b.lo InvalidArg
+  18              	
+  19 0010 C40A0058 	            ldr x4,=g_NumPixelsMax              // make sure num_pixels
+  20 0014 840040F9 	            ldr x4,[x4]                         // is <= g_NumPixelsMax
+  21 0018 5F0004EB 	            cmp x2,x4
+  22 001c E8090054 	            b.hi InvalidArg
+  23              	
+  24 0020 5F0C40F2 	            tst x2,0x0f                         // num_pixels must be even
+  25 0024 A1090054 	            b.ne InvalidArg                     // multiple of 16
+  26              	
+  27 0028 1F0C40F2 	            tst x0,0x0f                         // make sure both
+  28 002c 61090054 	            b.ne InvalidArg                     // pixel buffers are
+  29 0030 3F0C40F2 	            tst x1,0x0f                         // aligned to a 16-byte
+  30 0034 21090054 	            b.ne InvalidArg                     // boundary
+  31              	
+  32              	// Initialize constants - all registers contain packed SPFP elements
+  33              	// v4 = coef[0] v5 = coef[1], v6 = coef[2], v29 = 0.5
+  34              	
+  35 0038 64E8404D 	            ld3r {v4.4s,v5.4s,v6.4s},[x3]       // load packed coefficients
+  36 003c 1DF4034F 	            fmov v29.4s,0.5                     // load packed 0.5
+  37              	
+  38              	// Main processing loop
+  39 0040 2000DF4C 	Loop1:      ld4 {v0.16b,v1.16b,v2.16b,v3.16b},[x1],64   // load 16 RGB32
+  40              	
+  41              	            U8toF32 v16,v17,v18,v19,v0          // convert red pixels
+  41 0044 03A4082F 	>  uxtl v3.8h,v0.8b
+  41 0048 07A4086F 	>  uxtl2 v7.8h,v0.16b
+  41              	>  
+  41 004c 70A4102F 	>  uxtl v16.4s,v3.4h
+  41 0050 71A4106F 	>  uxtl2 v17.4s,v3.8h
+  41 0054 10DA216E 	>  ucvtf v16.4s,v16.4s
+  41 0058 31DA216E 	>  ucvtf v17.4s,v17.4s
+  41              	>  
+  41 005c F2A4102F 	>  uxtl v18.4s,v7.4h
+  41 0060 F3A4106F 	>  uxtl2 v19.4s,v7.8h
+  41 0064 52DA216E 	>  ucvtf v18.4s,v18.4s
+  41 0068 73DA216E 	>  ucvtf v19.4s,v19.4s
+  42              	            U8toF32 v20,v21,v22,v23,v1          // convert green pixels
+  42 006c 23A4082F 	>  uxtl v3.8h,v1.8b
+  42 0070 27A4086F 	>  uxtl2 v7.8h,v1.16b
+  42              	>  
+  42 0074 74A4102F 	>  uxtl v20.4s,v3.4h
+  42 0078 75A4106F 	>  uxtl2 v21.4s,v3.8h
+  42 007c 94DA216E 	>  ucvtf v20.4s,v20.4s
+  42 0080 B5DA216E 	>  ucvtf v21.4s,v21.4s
+  42              	>  
+  42 0084 F6A4102F 	>  uxtl v22.4s,v7.4h
+  42 0088 F7A4106F 	>  uxtl2 v23.4s,v7.8h
+AARCH64 GAS  Ch15_05_.s 			page 4
+
+
+  42 008c D6DA216E 	>  ucvtf v22.4s,v22.4s
+  42 0090 F7DA216E 	>  ucvtf v23.4s,v23.4s
+  43              	            U8toF32 v24,v25,v26,v27,v2          // convert blue pixels
+  43 0094 43A4082F 	>  uxtl v3.8h,v2.8b
+  43 0098 47A4086F 	>  uxtl2 v7.8h,v2.16b
+  43              	>  
+  43 009c 78A4102F 	>  uxtl v24.4s,v3.4h
+  43 00a0 79A4106F 	>  uxtl2 v25.4s,v3.8h
+  43 00a4 18DB216E 	>  ucvtf v24.4s,v24.4s
+  43 00a8 39DB216E 	>  ucvtf v25.4s,v25.4s
+  43              	>  
+  43 00ac FAA4102F 	>  uxtl v26.4s,v7.4h
+  43 00b0 FBA4106F 	>  uxtl2 v27.4s,v7.8h
+  43 00b4 5ADB216E 	>  ucvtf v26.4s,v26.4s
+  43 00b8 7BDB216E 	>  ucvtf v27.4s,v27.4s
+  44              	
+  45              	            MulCoef v16,v17,v18,v19,v4          // red pixels * coef[0]
+  45 00bc 10DE246E 	>  fmul v16.4s,v16.4s,v4.4s
+  45 00c0 31DE246E 	>  fmul v17.4s,v17.4s,v4.4s
+  45 00c4 52DE246E 	>  fmul v18.4s,v18.4s,v4.4s
+  45 00c8 73DE246E 	>  fmul v19.4s,v19.4s,v4.4s
+  46              	            MulCoef v20,v21,v22,v23,v5          // green pixels * coef[1]
+  46 00cc 94DE256E 	>  fmul v20.4s,v20.4s,v5.4s
+  46 00d0 B5DE256E 	>  fmul v21.4s,v21.4s,v5.4s
+  46 00d4 D6DE256E 	>  fmul v22.4s,v22.4s,v5.4s
+  46 00d8 F7DE256E 	>  fmul v23.4s,v23.4s,v5.4s
+  47              	            MulCoef v24,v25,v26,v27,v6          // blue pixels * coef[2]
+  47 00dc 18DF266E 	>  fmul v24.4s,v24.4s,v6.4s
+  47 00e0 39DF266E 	>  fmul v25.4s,v25.4s,v6.4s
+  47 00e4 5ADF266E 	>  fmul v26.4s,v26.4s,v6.4s
+  47 00e8 7BDF266E 	>  fmul v27.4s,v27.4s,v6.4s
+  48              	
+  49              	            SumRGB v16,v20,v24,v29              // sum r, g, b channels
+  49 00ec 10D6344E 	>  fadd v16.4s,v16.4s,v20.4s
+  49 00f0 07D73D4E 	>  fadd v7.4s,v24.4s,v29.4s
+  49 00f4 10D6274E 	>  fadd v16.4s,v16.4s,V7.4s
+  50              	            SumRGB v17,v21,v25,v29              // registers v16:19
+  50 00f8 31D6354E 	>  fadd v17.4s,v17.4s,v21.4s
+  50 00fc 27D73D4E 	>  fadd v7.4s,v25.4s,v29.4s
+  50 0100 31D6274E 	>  fadd v17.4s,v17.4s,V7.4s
+  51              	            SumRGB v18,v22,v26,v29              // contain grayscale
+  51 0104 52D6364E 	>  fadd v18.4s,v18.4s,v22.4s
+  51 0108 47D73D4E 	>  fadd v7.4s,v26.4s,v29.4s
+  51 010c 52D6274E 	>  fadd v18.4s,v18.4s,V7.4s
+  52              	            SumRGB v19,v23,v27,v29              // pixel values as F32
+  52 0110 73D6374E 	>  fadd v19.4s,v19.4s,v23.4s
+  52 0114 67D73D4E 	>  fadd v7.4s,v27.4s,v29.4s
+  52 0118 73D6274E 	>  fadd v19.4s,v19.4s,V7.4s
+  53              	
+  54              	            F32toU8 v2,v16,v17,v18,v19          // convert back to U8
+  54 011c 10AA216E 	>  fcvtnu v16.4s,v16.4s
+  54 0120 31AA216E 	>  fcvtnu v17.4s,v17.4s
+  54 0124 004A612E 	>  uqxtn v0.4h,v16.4s
+  54 0128 204A616E 	>  uqxtn2 v0.8h,v17.4s
+  54              	>  
+  54 012c 52AA216E 	>  fcvtnu v18.4s,v18.4s
+  54 0130 73AA216E 	>  fcvtnu v19.4s,v19.4s
+AARCH64 GAS  Ch15_05_.s 			page 5
+
+
+  54 0134 414A612E 	>  uqxtn v1.4h,v18.4s
+  54 0138 614A616E 	>  uqxtn2 v1.8h,v19.4s
+  54              	>  
+  54 013c 0248212E 	>  uqxtn v2.8b,v0.8h
+  54 0140 2248216E 	>  uqxtn2 v2.16b,v1.8h
+  55 0144 02709F4C 	            st1 {v2.16b},[x0],16                // save 16 GS pixels
+  56              	
+  57 0148 424000F1 	            subs x2,x2,16                       // n -= 16
+  58 014c A1F7FF54 	            b.ne Loop1
+  59              	
+  60 0150 20008052 	            mov w0,1                            // set success return code
+  61 0154 C0035FD6 	            ret
+  62              	
+  63 0158 00008052 	InvalidArg: mov w0,0                            // set error return code
+  64 015c C0035FD6 	            ret
+  64      00000000 
+  64      00000000 
+  64      00000000 
+  64      00000000 
+AARCH64 GAS  Ch15_05_.s 			page 6
+
+
+DEFINED SYMBOLS
+          Ch15_05_.s:11     .text:0000000000000000 ConvertRgbToGs_
+          Ch15_05_.s:14     .text:0000000000000000 $x
+          Ch15_05_.s:63     .text:0000000000000158 InvalidArg
+          Ch15_05_.s:39     .text:0000000000000040 Loop1
+          Ch15_05_.s:64     .text:0000000000000160 $d
+
+UNDEFINED SYMBOLS
+g_NumPixelsMin
+g_NumPixelsMax
